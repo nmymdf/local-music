@@ -30,7 +30,31 @@ jobs:
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
 
       - name: Build release APK
-        run: gradle :app:assembleRelease --no-daemon --stacktrace
+        shell: bash
+        run: |
+          set -o pipefail
+          gradle :app:assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log
+
+      - name: Publish build log when the build fails
+        if: failure()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          URL="https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
+          rm -rf /tmp/logrepo
+          mkdir -p /tmp/logrepo
+          cd /tmp/logrepo
+          git init -b buildlog
+          git remote add origin "$URL"
+          tail -n 300 "$GITHUB_WORKSPACE/build.log" > build-tail.log || true
+          grep -nE "^e: |What went wrong|FAILURE|error:" -A4 "$GITHUB_WORKSPACE/build.log" | head -250 > errors.txt || true
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add -A
+          git commit -m "build log ${GITHUB_SHA::7}" || true
+          git push --force origin buildlog
 
       - name: Upload APK as workflow artifact
         uses: actions/upload-artifact@v4
