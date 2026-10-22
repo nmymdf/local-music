@@ -109,6 +109,14 @@ fun ManageScreen(vm: LibraryViewModel) {
             fontSize = 12.sp,
             modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 2.dp, bottom = 10.dp),
         )
+        if (vm.analyzing > 0) {
+            Text(
+                "正在背景分析節拍，還剩 ${fmtCount(vm.analyzing)} 首（分析完才會歸進節拍分類）",
+                color = p.amber,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 8.dp),
+            )
+        }
 
         Row(
             Modifier.padding(horizontal = 16.dp).height(34.dp).fillMaxWidth(),
@@ -291,6 +299,7 @@ private fun CategoryRow(
                                 text = { Text(t.label) },
                                 onClick = {
                                     vm.setRule(c.id, t, if (t == RuleType.KEYWORDS) c.param else "")
+                                    if (t == RuleType.TEMPO_FAST || t == RuleType.TEMPO_SLOW) onEdit(c.id to 1)
                                     menu = false
                                 },
                             )
@@ -333,13 +342,18 @@ private fun CategoryRow(
             Text(ne, color = p.red, fontSize = 12.sp, modifier = Modifier.padding(start = 60.dp, bottom = 8.dp))
         }
 
-        if (editRule && (c.rule == RuleType.KEYWORDS || c.rule == RuleType.FREQUENT)) {
+        if (editRule && (c.rule == RuleType.KEYWORDS || c.rule == RuleType.FREQUENT || c.isTempo)) {
             var ptext by remember(c.id, c.rule, c.param) { mutableStateOf(c.param) }
             val fr = remember { FocusRequester() }
             LaunchedEffect(c.id, c.rule) { fr.requestFocus() }
             Column(Modifier.padding(start = 60.dp, end = 16.dp, bottom = 10.dp)) {
                 Text(
-                    if (c.rule == RuleType.KEYWORDS) "資料夾名稱或關鍵字，用逗號分開" else "播放幾次以上算常聽",
+                    when {
+                        c.rule == RuleType.KEYWORDS -> "資料夾名稱或關鍵字，用逗號分開"
+                        c.rule == RuleType.TEMPO_FAST -> "每分鐘幾拍以上算快歌（預設 125，跑步建議 140）"
+                        c.rule == RuleType.TEMPO_SLOW -> "每分鐘幾拍以下算慢歌（預設 85）"
+                        else -> "播放幾次以上算常聽"
+                    },
                     color = p.muted,
                     fontSize = 12.sp,
                     modifier = Modifier.padding(bottom = 4.dp),
@@ -347,12 +361,12 @@ private fun CategoryRow(
                 BasicTextField(
                     value = ptext,
                     onValueChange = { ptext = it },
-                    singleLine = c.rule == RuleType.FREQUENT,
+                    singleLine = c.rule != RuleType.KEYWORDS,
                     textStyle = TextStyle(color = p.text, fontSize = 14.sp),
                     cursorBrush = SolidColor(p.accent),
                     keyboardOptions = KeyboardOptions(
                         imeAction = ImeAction.Done,
-                        keyboardType = if (c.rule == RuleType.FREQUENT) KeyboardType.Number else KeyboardType.Text,
+                        keyboardType = if (c.rule != RuleType.KEYWORDS) KeyboardType.Number else KeyboardType.Text,
                     ),
                     keyboardActions = KeyboardActions(onDone = {
                         vm.setRule(c.id, c.rule, ptext)

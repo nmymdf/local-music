@@ -35,6 +35,8 @@ enum class RuleType(val label: String) {
     LANG_EN("語言：英文"),
     KEYWORDS("資料夾／關鍵字"),
     FREQUENT("播放次數"),
+    TEMPO_FAST("節拍：快歌"),
+    TEMPO_SLOW("節拍：慢歌"),
 }
 
 data class Category(
@@ -52,7 +54,17 @@ data class Category(
     val minPlays: Int
         get() = param.trim().toIntOrNull()?.coerceAtLeast(1) ?: 10
 
+    val isTempo: Boolean
+        get() = rule == RuleType.TEMPO_FAST || rule == RuleType.TEMPO_SLOW
+
+    /** 每分鐘幾拍的界線；沒填就用預設（快歌 ≥ 125，慢歌 ≤ 85） */
+    val bpmLimit: Int
+        get() = param.trim().toIntOrNull()?.coerceIn(40, 220)
+            ?: if (rule == RuleType.TEMPO_FAST) 125 else 85
+
     fun ruleText(): String = when (rule) {
+        RuleType.TEMPO_FAST -> "節拍 ≥ $bpmLimit"
+        RuleType.TEMPO_SLOW -> "節拍 ≤ $bpmLimit"
         RuleType.FREQUENT -> "播放 ≥ $minPlays 次"
         RuleType.KEYWORDS -> if (keywords.isEmpty()) "資料夾／關鍵字" else "關鍵字：" + keywords.joinToString("、")
         else -> rule.label
@@ -65,6 +77,7 @@ data class StoreData(
     val removed: Map<Long, Set<String>>,
     val plays: Map<Long, Int>,
     val onboarded: Boolean,
+    val bpm: Map<Long, Int> = emptyMap(),
 )
 
 class Store(private val file: File) {
@@ -80,8 +93,11 @@ class Store(private val file: File) {
                 "buddhist", "佛曲", RuleType.KEYWORDS,
                 "佛,南無,南无,心經,心经,大悲咒,觀音,观音,阿彌陀,阿弥陀,念佛,梵唄,梵呗,法師,法师,佛曲,佛歌,佛號,佛号,誦經,诵经,晨課,晚課"
             ),
-            Category("run", "跑步", RuleType.KEYWORDS, "跑步,慢跑,running,workout"),
+            Category("run", "跑步", RuleType.TEMPO_FAST, "140"),
+            Category("slow", "慢音樂", RuleType.TEMPO_SLOW, "85"),
         )
+
+        const val OLD_RUN_KEYWORDS = "跑步,慢跑,running,workout"
     }
 
     fun load(): StoreData {
@@ -101,12 +117,23 @@ class Store(private val file: File) {
                 cats.add(Category(c.getString("id"), c.getString("name"), rule, c.optString("param", "")))
             }
             if (cats.none { it.rule == RuleType.FREQUENT }) cats.add(0, defaultCats()[0])
+            if (o.optInt("v", 1) < 2) {
+                // v0.1 → v0.2：跑步改用節拍判斷（只換沒被改過的預設值），並補上慢音樂
+                for (i in cats.indices) {
+                    val c = cats[i]
+                    if (c.id == "run" && c.rule == RuleType.KEYWORDS && c.param == OLD_RUN_KEYWORDS) {
+                        cats[i] = c.copy(rule = RuleType.TEMPO_FAST, param = "140")
+                    }
+                }
+                if (cats.none { it.id == "slow" }) cats.add(defaultCats().first { it.id == "slow" })
+            }
             StoreData(
                 cats = cats,
                 added = readSetMap(o.optJSONObject("added")),
                 removed = readSetMap(o.optJSONObject("removed")),
                 plays = readPlays(o.optJSONObject("plays")),
                 onboarded = o.optBoolean("onboarded", false),
+                bpm = readPlays(o.optJSONObject("bpm")),
             )
         } catch (e: Exception) {
             fallback
@@ -116,7 +143,7 @@ class Store(private val file: File) {
     fun save(d: StoreData) {
         try {
             val o = JSONObject()
-            o.put("v", 1)
+            o.put("v", 2)
             o.put("onboarded", d.onboarded)
             val ca = JSONArray()
             for (c in d.cats) {
@@ -134,6 +161,9 @@ class Store(private val file: File) {
             val po = JSONObject()
             for ((k, v) in d.plays) po.put(k.toString(), v)
             o.put("plays", po)
+            val bo = JSONObject()
+            for ((k, v) in d.bpm) bo.put(k.toString(), v)
+            o.put("bpm", bo)
             val tmp = File(file.parentFile, file.name + ".tmp")
             tmp.writeText(o.toString())
             if (!tmp.renameTo(file)) {
@@ -208,12 +238,14 @@ object Classifier {
         return latin
     }
 
-    fun match(c: Category, keywords: List<String>, s: Song, plays: Int): Boolean = when (c.rule) {
+    fun match(c: Category, keywords: List<String>, s: Song, plays: Int, bpm: Int): Boolean = when (c.rule) {
         RuleType.MANUAL -> false
         RuleType.LANG_ZH -> isZh(s)
         RuleType.LANG_EN -> isEn(s)
         RuleType.KEYWORDS -> keywords.any { s.haystack.contains(it) }
         RuleType.FREQUENT -> plays >= c.minPlays
+        RuleType.TEMPO_FAST -> bpm > 0 && bpm >= c.bpmLimit
+        RuleType.TEMPO_SLOW -> bpm > 0 && bpm <= c.bpmLimit
     }
 }
 

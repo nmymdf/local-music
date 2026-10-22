@@ -9,7 +9,9 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 class LibraryViewModel(app: Application) : AndroidViewModel(app) {
@@ -26,6 +28,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var plays by mutableStateOf<Map<Long, Int>>(emptyMap())
         private set
+    var bpm by mutableStateOf<Map<Long, Int>>(emptyMap())
+        private set
+    /** 還在背景分析節拍的歌曲數（0 = 沒有在分析） */
+    var analyzing by mutableStateOf(0)
+        private set
     var onboarded by mutableStateOf(false)
         private set
     var scanned by mutableStateOf(false)
@@ -34,6 +41,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         private set
 
     private var refreshing = false
+    private var analyzeJob: Job? = null
 
     init {
         val d = store.load()
@@ -41,6 +49,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         added = d.added
         removed = d.removed
         plays = d.plays
+        bpm = d.bpm
         onboarded = d.onboarded
     }
 
@@ -66,7 +75,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             val rem = removed[s.id]
             val add = added[s.id]
             for (c in cats) {
-                val auto = Classifier.match(c, kw[c.id] ?: emptyList(), s, p)
+                val auto = Classifier.match(c, kw[c.id] ?: emptyList(), s, p, bpm[s.id] ?: 0)
                 val inCat = (auto && rem?.contains(c.id) != true) || add?.contains(c.id) == true
                 if (inCat) res[c.id]?.add(s)
             }
@@ -96,6 +105,38 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             scanned = true
             scanning = false
             refreshing = false
+            startAnalysis(ctx.applicationContext)
+        }
+    }
+
+    /** 有分類用到節拍時，在背景一首一首算；算過的不再算（0 代表算不出來，也不重試） */
+    fun startAnalysis(ctx: Context) {
+        if (cats.none { it.isTempo }) {
+            analyzing = 0
+            return
+        }
+        if (analyzeJob?.isActive == true) return
+        val todo = songs.filter { it.id !in bpm }
+        if (todo.isEmpty()) {
+            analyzing = 0
+            return
+        }
+        analyzeJob = viewModelScope.launch {
+            var left = todo.size
+            analyzing = left
+            val batch = HashMap<Long, Int>()
+            for (s in todo) {
+                val v = withContext(Dispatchers.Default) { BpmAnalyzer.analyze(ctx, s.uri, s.durationMs) }
+                batch[s.id] = v
+                left--
+                if (batch.size >= 8 || left == 0) {
+                    bpm = bpm + batch
+                    batch.clear()
+                    persist()
+                }
+                analyzing = left
+            }
+            analyzing = 0
         }
     }
 
@@ -164,6 +205,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun setRule(id: String, rule: RuleType, param: String) {
         cats = cats.map { if (it.id == id) it.copy(rule = rule, param = param.trim()) else it }
         persist()
+        startAnalysis(getApplication<Application>().applicationContext)
     }
 
     fun deleteCategories(ids: Set<String>) {
@@ -179,11 +221,12 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         added = added - ids
         removed = removed - ids
         plays = plays - ids
+        bpm = bpm - ids
         persist()
     }
 
     private fun persist() {
-        val d = StoreData(cats, added, removed, plays, onboarded)
+        val d = StoreData(cats, added, removed, plays, onboarded, bpm)
         viewModelScope.launch(Dispatchers.IO) { store.save(d) }
     }
 }
