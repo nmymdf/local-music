@@ -37,6 +37,7 @@ enum class RuleType(val label: String) {
     FREQUENT("播放次數"),
     TEMPO_FAST("節拍：快歌"),
     TEMPO_SLOW("節拍：慢歌"),
+    AUDIO_QUIET("音訊：安靜"),
 }
 
 data class Category(
@@ -62,7 +63,12 @@ data class Category(
         get() = param.trim().toIntOrNull()?.coerceIn(40, 220)
             ?: if (rule == RuleType.TEMPO_FAST) 125 else 85
 
+    /** 平均音量上限（dB），例如 -24；數字越小越安靜 */
+    val loudLimit: Int
+        get() = param.trim().toIntOrNull()?.coerceIn(-60, -5) ?: -24
+
     fun ruleText(): String = when (rule) {
+        RuleType.AUDIO_QUIET -> "音量 ≤ $loudLimit dB"
         RuleType.TEMPO_FAST -> "節拍 ≥ $bpmLimit"
         RuleType.TEMPO_SLOW -> "節拍 ≤ $bpmLimit"
         RuleType.FREQUENT -> "播放 ≥ $minPlays 次"
@@ -78,6 +84,7 @@ data class StoreData(
     val plays: Map<Long, Int>,
     val onboarded: Boolean,
     val bpm: Map<Long, Int> = emptyMap(),
+    val loud: Map<Long, Int> = emptyMap(),
 )
 
 class Store(private val file: File) {
@@ -88,7 +95,7 @@ class Store(private val file: File) {
             Category("zh", "中文", RuleType.LANG_ZH),
             Category("en", "英文", RuleType.LANG_EN),
             Category("lyric", "抒情", RuleType.MANUAL),
-            Category("quiet", "安靜", RuleType.MANUAL),
+            Category("quiet", "安靜", RuleType.AUDIO_QUIET, "-24"),
             Category(
                 "buddhist", "佛曲", RuleType.KEYWORDS,
                 "佛,南無,南无,心經,心经,大悲咒,觀音,观音,阿彌陀,阿弥陀,念佛,梵唄,梵呗,法師,法师,佛曲,佛歌,佛號,佛号,誦經,诵经,晨課,晚課"
@@ -127,6 +134,15 @@ class Store(private val file: File) {
                 }
                 if (cats.none { it.id == "slow" }) cats.add(defaultCats().first { it.id == "slow" })
             }
+            if (o.optInt("v", 1) < 3) {
+                // v0.3：安靜改成看音量（手動加進去的歌還是留著）
+                for (i in cats.indices) {
+                    val c = cats[i]
+                    if (c.id == "quiet" && c.rule == RuleType.MANUAL) {
+                        cats[i] = c.copy(rule = RuleType.AUDIO_QUIET, param = "-24")
+                    }
+                }
+            }
             StoreData(
                 cats = cats,
                 added = readSetMap(o.optJSONObject("added")),
@@ -134,6 +150,7 @@ class Store(private val file: File) {
                 plays = readPlays(o.optJSONObject("plays")),
                 onboarded = o.optBoolean("onboarded", false),
                 bpm = readPlays(o.optJSONObject("bpm")),
+                loud = readPlays(o.optJSONObject("loud")),
             )
         } catch (e: Exception) {
             fallback
@@ -143,7 +160,7 @@ class Store(private val file: File) {
     fun save(d: StoreData) {
         try {
             val o = JSONObject()
-            o.put("v", 2)
+            o.put("v", 3)
             o.put("onboarded", d.onboarded)
             val ca = JSONArray()
             for (c in d.cats) {
@@ -164,6 +181,9 @@ class Store(private val file: File) {
             val bo = JSONObject()
             for ((k, v) in d.bpm) bo.put(k.toString(), v)
             o.put("bpm", bo)
+            val lo = JSONObject()
+            for ((k, v) in d.loud) lo.put(k.toString(), v)
+            o.put("loud", lo)
             val tmp = File(file.parentFile, file.name + ".tmp")
             tmp.writeText(o.toString())
             if (!tmp.renameTo(file)) {
@@ -238,7 +258,7 @@ object Classifier {
         return latin
     }
 
-    fun match(c: Category, keywords: List<String>, s: Song, plays: Int, bpm: Int): Boolean = when (c.rule) {
+    fun match(c: Category, keywords: List<String>, s: Song, plays: Int, bpm: Int, loud: Int): Boolean = when (c.rule) {
         RuleType.MANUAL -> false
         RuleType.LANG_ZH -> isZh(s)
         RuleType.LANG_EN -> isEn(s)
@@ -246,6 +266,7 @@ object Classifier {
         RuleType.FREQUENT -> plays >= c.minPlays
         RuleType.TEMPO_FAST -> bpm > 0 && bpm >= c.bpmLimit
         RuleType.TEMPO_SLOW -> bpm > 0 && bpm <= c.bpmLimit
+        RuleType.AUDIO_QUIET -> loud != LOUD_NONE && loud <= c.loudLimit * 10
     }
 }
 

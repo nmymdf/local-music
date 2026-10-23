@@ -15,6 +15,11 @@ import kotlin.math.sqrt
  * 做法：取音量包絡 → 找出突然變大的地方 → 用自相關找最常重複的間隔。
  * 這是估算，偶爾會抓成兩倍或一半，所以只拿來粗分快歌、慢歌。
  */
+const val LOUD_NONE = 999
+
+/** bpm：每分鐘拍數（0 = 抓不到）；loud：平均音量，單位 0.1 dBFS（LOUD_NONE = 量不到） */
+data class Feat(val bpm: Int, val loud: Int)
+
 object BpmAnalyzer {
 
     private const val ENV_RATE = 100          // 每秒 100 個包絡點
@@ -22,14 +27,22 @@ object BpmAnalyzer {
     private const val MIN_BPM = 60
     private const val MAX_BPM = 170
 
-    /** 回傳 BPM；失敗或抓不到就回傳 0 */
-    fun analyze(ctx: Context, uri: Uri, durationMs: Long): Int {
+    fun analyze(ctx: Context, uri: Uri, durationMs: Long): Feat {
         return try {
             val env = decodeEnvelope(ctx, uri, durationMs)
-            if (env.size < ENV_RATE * 8) 0 else estimate(env)
+            if (env.size < ENV_RATE * 8) Feat(0, LOUD_NONE) else Feat(estimate(env), loudness(env))
         } catch (e: Throwable) {
-            0
+            Feat(0, LOUD_NONE)
         }
+    }
+
+    /** 平均音量（RMS）換成 dBFS 的十倍，例如 -245 = -24.5 dB */
+    private fun loudness(env: FloatArray): Int {
+        var sq = 0.0
+        for (v in env) sq += v.toDouble() * v
+        val rms = sqrt(sq / env.size) / 32768.0
+        if (rms <= 1e-6) return LOUD_NONE
+        return Math.round(20.0 * Math.log10(rms) * 10.0).toInt()
     }
 
     private fun decodeEnvelope(ctx: Context, uri: Uri, durationMs: Long): FloatArray {

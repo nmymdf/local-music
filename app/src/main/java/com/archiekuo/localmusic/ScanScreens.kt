@@ -69,7 +69,6 @@ fun PermissionScreen(version: String, onAllow: () -> Unit) {
                 contentAlignment = Alignment.Center,
             ) { Text("已經拒絕過？到系統設定開啟", color = p.accent, fontSize = 14.sp) }
         }
-        CreditFooter(version)
     }
 }
 
@@ -96,7 +95,6 @@ fun ScanningScreen(version: String) {
             Text("正在掃描手機裡的歌…", color = p.text, fontSize = 16.sp, modifier = Modifier.padding(top = 20.dp))
             Text("歌很多的話要等一下", color = p.muted, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
         }
-        CreditFooter(version)
     }
 }
 
@@ -150,7 +148,6 @@ fun ScanDoneScreen(
                 ) { Text("先整理未分類的 ${fmtCount(uncat)} 首", color = p.accent, fontSize = 14.sp) }
             }
         }
-        CreditFooter(version)
     }
 }
 

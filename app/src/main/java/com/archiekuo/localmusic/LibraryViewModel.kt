@@ -30,6 +30,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var bpm by mutableStateOf<Map<Long, Int>>(emptyMap())
         private set
+    var loud by mutableStateOf<Map<Long, Int>>(emptyMap())
+        private set
     /** 還在背景分析節拍的歌曲數（0 = 沒有在分析） */
     var analyzing by mutableStateOf(0)
         private set
@@ -50,6 +52,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         removed = d.removed
         plays = d.plays
         bpm = d.bpm
+        loud = d.loud
         onboarded = d.onboarded
     }
 
@@ -75,7 +78,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             val rem = removed[s.id]
             val add = added[s.id]
             for (c in cats) {
-                val auto = Classifier.match(c, kw[c.id] ?: emptyList(), s, p, bpm[s.id] ?: 0)
+                val auto = Classifier.match(c, kw[c.id] ?: emptyList(), s, p, bpm[s.id] ?: 0, loud[s.id] ?: LOUD_NONE)
                 val inCat = (auto && rem?.contains(c.id) != true) || add?.contains(c.id) == true
                 if (inCat) res[c.id]?.add(s)
             }
@@ -111,12 +114,12 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     /** 有分類用到節拍時，在背景一首一首算；算過的不再算（0 代表算不出來，也不重試） */
     fun startAnalysis(ctx: Context) {
-        if (cats.none { it.isTempo }) {
+        if (cats.none { it.isTempo || it.rule == RuleType.AUDIO_QUIET }) {
             analyzing = 0
             return
         }
         if (analyzeJob?.isActive == true) return
-        val todo = songs.filter { it.id !in bpm }
+        val todo = songs.filter { it.id !in loud }
         if (todo.isEmpty()) {
             analyzing = 0
             return
@@ -125,13 +128,17 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             var left = todo.size
             analyzing = left
             val batch = HashMap<Long, Int>()
+            val batchLoud = HashMap<Long, Int>()
             for (s in todo) {
                 val v = withContext(Dispatchers.Default) { BpmAnalyzer.analyze(ctx, s.uri, s.durationMs) }
-                batch[s.id] = v
+                batch[s.id] = v.bpm
+                batchLoud[s.id] = v.loud
                 left--
                 if (batch.size >= 8 || left == 0) {
                     bpm = bpm + batch
+                    loud = loud + batchLoud
                     batch.clear()
+                    batchLoud.clear()
                     persist()
                 }
                 analyzing = left
@@ -222,11 +229,12 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         removed = removed - ids
         plays = plays - ids
         bpm = bpm - ids
+        loud = loud - ids
         persist()
     }
 
     private fun persist() {
-        val d = StoreData(cats, added, removed, plays, onboarded, bpm)
+        val d = StoreData(cats, added, removed, plays, onboarded, bpm, loud)
         viewModelScope.launch(Dispatchers.IO) { store.save(d) }
     }
 }

@@ -19,6 +19,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.runtime.Composable
@@ -109,6 +110,7 @@ fun App(
     var filter by rememberSaveable { mutableStateOf("all") }
     var selecting by remember { mutableStateOf(false) }
     var showPlayer by remember { mutableStateOf(false) }
+    var showTidy by remember { mutableStateOf(false) }
 
     LaunchedEffect(granted) {
         if (granted) vm.refresh(ctx)
@@ -144,6 +146,7 @@ fun App(
     }
 
     BackHandler(enabled = showPlayer) { showPlayer = false }
+    // 整理畫面自己有 BackHandler
     BackHandler(enabled = selecting && !showPlayer) { selecting = false }
 
     val ready = granted && vm.scanned && !vm.scanning && vm.onboarded
@@ -156,6 +159,9 @@ fun App(
             .systemBarsPadding()
             .imePadding(),
     ) {
+        Column(Modifier.fillMaxSize()) {
+        CreditBar(version)
+        Box(Modifier.weight(1f).fillMaxWidth()) {
         when {
             !granted -> PermissionScreen(version) {
                 val perms = if (Build.VERSION.SDK_INT >= 33) {
@@ -174,9 +180,7 @@ fun App(
                 onEnter = { vm.markOnboarded() },
                 onTidy = {
                     vm.markOnboarded()
-                    filter = "uncat"
-                    tab = 0
-                    selecting = true
+                    showTidy = true
                 },
             )
 
@@ -200,11 +204,7 @@ fun App(
                                 tab = 0
                             },
                             onManage = { tab = 2 },
-                            onTidy = {
-                                filter = "uncat"
-                                tab = 0
-                                selecting = true
-                            },
+                            onTidy = { showTidy = true },
                         )
 
                         else -> ManageScreen(vm)
@@ -217,12 +217,16 @@ fun App(
                         selecting = false
                     }
                 }
-                CreditFooter(version)
             }
         }
 
+        if (showTidy && ready) {
+            TidyScreen(vm) { showTidy = false }
+        }
         if (showPlayer && ready) {
             PlayerScreen(vm, conn, version) { showPlayer = false }
+        }
+        }
         }
     }
 }

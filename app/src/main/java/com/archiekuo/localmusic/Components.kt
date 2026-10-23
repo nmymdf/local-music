@@ -248,17 +248,21 @@ fun CheckBox(checked: Boolean, enabled: Boolean = true, onToggle: () -> Unit) {
     }
 }
 
+/** 作者與版本：放在每一頁抬頭的右上角 */
 @Composable
-fun CreditFooter(version: String) {
+fun CreditBar(version: String) {
     val p = LocalPal.current
-    Box(Modifier.fillMaxWidth().height(24.dp), contentAlignment = Alignment.Center) {
+    Row(
+        Modifier.fillMaxWidth().padding(end = 14.dp, top = 4.dp),
+        horizontalArrangement = Arrangement.End,
+    ) {
         Text(
             "作者：ArchieKUO　v$version",
             color = p.gold,
-            fontSize = 11.sp,
+            fontSize = 10.sp,
             fontStyle = FontStyle.Italic,
             letterSpacing = 0.4.sp,
-            textAlign = TextAlign.Center,
+            maxLines = 1,
         )
     }
 }

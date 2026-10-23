@@ -77,7 +77,6 @@ fun PlayerScreen(
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Text("目前沒有在播放的歌", color = p.muted, fontSize = 14.sp)
             }
-            CreditFooter(version)
             return@Column
         }
 
@@ -246,6 +245,5 @@ fun PlayerScreen(
             }
         }
 
-        CreditFooter(version)
     }
 }
