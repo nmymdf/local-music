@@ -105,6 +105,7 @@ fun HomeScreen(
     selecting: Boolean,
     onSelecting: (Boolean) -> Unit,
     onDelete: (List<Song>) -> Unit,
+    onFolders: () -> Unit,
 ) {
     val p = LocalPal.current
     val ctx = LocalContext.current
@@ -181,6 +182,7 @@ fun HomeScreen(
                 vm.cats.filter { it.isSystem }.forEach { c ->
                     Chip(c.name, filter == c.id, { onFilter(c.id) }, tint = p.amber, icon = IcStar)
                 }
+                Chip("資料夾", false, onFolders, icon = IcFolder)
                 vm.cats.filter { !it.isSystem }.forEach { c ->
                     Chip(c.name, filter == c.id, { onFilter(c.id) })
                 }
@@ -278,7 +280,7 @@ fun HomeScreen(
                         text = if (pickName != null) "加入「$pickName」" else "先選一個分類",
                         enabled = pickCat != null && selected.isNotEmpty(),
                         primary = true,
-                        modifier = Modifier.weight(1.4f),
+                        modifier = Modifier.weight(1.3f),
                     ) {
                         val id = pickCat
                         if (id != null) {
@@ -299,6 +301,16 @@ fun HomeScreen(
                             Toast.makeText(ctx, "已從「$pickName」移出 ${selected.size} 首", Toast.LENGTH_SHORT).show()
                             onSelecting(false)
                         }
+                    }
+                    PillButton(
+                        text = "不是歌",
+                        enabled = selected.isNotEmpty(),
+                        primary = false,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        vm.hideSongs(selected)
+                        Toast.makeText(ctx, "已隱藏 ${selected.size} 首（在 管理 → 已隱藏 可以恢復）", Toast.LENGTH_SHORT).show()
+                        onSelecting(false)
                     }
                     Box(
                         Modifier

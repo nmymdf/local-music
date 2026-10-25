@@ -12,8 +12,8 @@ android {
         applicationId = "com.archiekuo.localmusic"
         minSdk = 30
         targetSdk = 34
-        versionCode = 3
-        versionName = "0.3"
+        versionCode = 4
+        versionName = "0.4"
     }
 
     // 固定簽章：每一版都用同一把鑰匙，新版 APK 才能直接覆蓋安裝舊版

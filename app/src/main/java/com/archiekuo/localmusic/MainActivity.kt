@@ -111,6 +111,8 @@ fun App(
     var selecting by remember { mutableStateOf(false) }
     var showPlayer by remember { mutableStateOf(false) }
     var showTidy by remember { mutableStateOf(false) }
+    var showFolders by remember { mutableStateOf(false) }
+    var showHidden by remember { mutableStateOf(false) }
 
     LaunchedEffect(granted) {
         if (granted) vm.refresh(ctx)
@@ -195,6 +197,7 @@ fun App(
                             selecting = selecting,
                             onSelecting = { selecting = it },
                             onDelete = onDelete,
+                            onFolders = { showFolders = true },
                         )
 
                         1 -> CategoriesScreen(
@@ -207,7 +210,7 @@ fun App(
                             onTidy = { showTidy = true },
                         )
 
-                        else -> ManageScreen(vm)
+                        else -> ManageScreen(vm) { showHidden = true }
                     }
                 }
                 if (!selecting) {
@@ -220,6 +223,12 @@ fun App(
             }
         }
 
+        if (showFolders && ready) {
+            FolderScreen(vm, conn) { showFolders = false }
+        }
+        if (showHidden && ready) {
+            HiddenScreen(vm) { showHidden = false }
+        }
         if (showTidy && ready) {
             TidyScreen(vm) { showTidy = false }
         }

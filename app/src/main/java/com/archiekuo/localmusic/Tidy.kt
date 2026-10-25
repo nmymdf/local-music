@@ -43,6 +43,7 @@ data class TidyGroup(
     val sub: String,
     val songs: List<Song>,
     val targetId: String? = null,
+    val hide: Boolean = false,
 )
 
 private enum class TidyTab(val label: String) {
@@ -110,6 +111,19 @@ fun buildSuggestions(vm: LibraryViewModel): List<TidyGroup> {
     }
     byKey("sf:", "同資料夾", { it.folder }, { folderTitle(it) }, { it.isBlank() })
     byKey("sa:", "同歌手", { it.artist }, { it }, { it.isBlank() })
+
+    // 可能不是歌：太短、檔名像語音或錄音
+    val shorts = un.filter { it.id !in claimed && it.durationMs < 45_000 }
+    if (shorts.isNotEmpty()) {
+        for (s in shorts) claimed.add(s.id)
+        out.add(TidyGroup("sx:short", "可能不是歌：太短", "短於 45 秒，像語音或提示音", shorts, null, true))
+    }
+    val voiceRe = Regex("^(voice|ptt|aud[-_]|audio[-_]|rec[-_ ]|record|錄音|录音|語音|语音|通話|通话)", RegexOption.IGNORE_CASE)
+    val voices = un.filter { it.id !in claimed && voiceRe.containsMatchIn(it.title.trim()) }
+    if (voices.isNotEmpty()) {
+        for (s in voices) claimed.add(s.id)
+        out.add(TidyGroup("sx:name", "可能不是歌：檔名像語音", "VOICE、PTT、錄音 開頭的檔名", voices, null, true))
+    }
 
     // 聽起來像：節拍與音量
     fun feat(s: Song): Pair<Double, Double>? {
@@ -276,7 +290,7 @@ fun TidyScreen(vm: LibraryViewModel, onClose: () -> Unit) {
             LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
                 items(groups, key = { it.key }) { g ->
                     val on = g.key in sel
-                    val target = vm.cats.firstOrNull { it.id == g.targetId }?.name
+                    val target = if (g.hide) "不是歌" else vm.cats.firstOrNull { it.id == g.targetId }?.name
                     Row(
                         Modifier
                             .fillMaxWidth()
@@ -322,7 +336,8 @@ fun TidyScreen(vm: LibraryViewModel, onClose: () -> Unit) {
                     ) {
                         for (g in chosen) {
                             val t = g.targetId
-                            if (t != null) vm.assign(g.songs.map { it.id }.toSet(), t)
+                            if (g.hide) vm.hideSongs(g.songs.map { it.id }.toSet())
+                            else if (t != null) vm.assign(g.songs.map { it.id }.toSet(), t)
                         }
                         sel = emptySet()
                     }

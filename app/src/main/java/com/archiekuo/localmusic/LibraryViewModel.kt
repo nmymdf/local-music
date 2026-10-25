@@ -18,8 +18,25 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     private val store = Store(File(app.filesDir, "data.json"))
 
-    var songs by mutableStateOf<List<Song>>(emptyList())
+    private var rawSongs by mutableStateOf<List<Song>>(emptyList())
+    var folderCats by mutableStateOf<Map<String, Set<String>>>(emptyMap())
         private set
+    var hiddenFolders by mutableStateOf<Set<String>>(emptySet())
+        private set
+    var hiddenSongs by mutableStateOf<Set<Long>>(emptySet())
+        private set
+
+    /** 手機裡找到的全部歌（含被隱藏的），給「已隱藏」畫面用 */
+    val allSongs: List<Song> get() = rawSongs
+
+    /** 曲庫裡看得到的歌（已排除隱藏的資料夾和「不是歌」） */
+    val songs: List<Song> by derivedStateOf {
+        if (hiddenFolders.isEmpty() && hiddenSongs.isEmpty()) {
+            rawSongs
+        } else {
+            rawSongs.filter { s -> s.id !in hiddenSongs && hiddenFolders.none { inFolder(s.folder, it) } }
+        }
+    }
     var cats by mutableStateOf<List<Category>>(Store.defaultCats())
         private set
     var added by mutableStateOf<Map<Long, Set<String>>>(emptyMap())
@@ -53,6 +70,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         plays = d.plays
         bpm = d.bpm
         loud = d.loud
+        folderCats = d.folderCats
+        hiddenFolders = d.hiddenFolders
+        hiddenSongs = d.hiddenSongs
         onboarded = d.onboarded
     }
 
@@ -71,6 +91,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     private fun computeByCat(): Map<String, List<Song>> {
         val kw = HashMap<String, List<String>>()
         for (c in cats) kw[c.id] = c.keywords
+        val fr = HashMap<String, ArrayList<String>>()
+        for ((folder, ids) in folderCats) for (cid in ids) fr.getOrPut(cid) { ArrayList() }.add(folder)
         val res = LinkedHashMap<String, ArrayList<Song>>()
         for (c in cats) res[c.id] = ArrayList()
         for (s in songs) {
@@ -78,7 +100,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             val rem = removed[s.id]
             val add = added[s.id]
             for (c in cats) {
-                val auto = Classifier.match(c, kw[c.id] ?: emptyList(), s, p, bpm[s.id] ?: 0, loud[s.id] ?: LOUD_NONE)
+                val folderHit = fr[c.id]?.any { inFolder(s.folder, it) } == true
+                val auto = folderHit || Classifier.match(c, kw[c.id] ?: emptyList(), s, p, bpm[s.id] ?: 0, loud[s.id] ?: LOUD_NONE)
                 val inCat = (auto && rem?.contains(c.id) != true) || add?.contains(c.id) == true
                 if (inCat) res[c.id]?.add(s)
             }
@@ -90,6 +113,49 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
         return res
+    }
+
+    // ---- 資料夾歸類與隱藏 ----
+
+    fun assignFolders(folders: Set<String>, catId: String) {
+        val m = folderCats.toMutableMap()
+        for (f in folders) m[f] = (m[f] ?: emptySet()) + catId
+        folderCats = m
+        persist()
+    }
+
+    /** catId 為 null 時，把這些資料夾的歸屬全部取消 */
+    fun unassignFolders(folders: Set<String>, catId: String?) {
+        val m = folderCats.toMutableMap()
+        for (f in folders) {
+            val s = if (catId == null) emptySet() else (m[f] ?: emptySet()) - catId
+            if (s.isEmpty()) m.remove(f) else m[f] = s
+        }
+        folderCats = m
+        persist()
+    }
+
+    fun hideFolders(folders: Set<String>) {
+        hiddenFolders = hiddenFolders + folders
+        persist()
+    }
+
+    fun unhideFolders(folders: Set<String>) {
+        hiddenFolders = hiddenFolders - folders
+        persist()
+        // 剛恢復的歌還沒分析過，補算
+        startAnalysis(getApplication<Application>().applicationContext)
+    }
+
+    fun hideSongs(ids: Set<Long>) {
+        hiddenSongs = hiddenSongs + ids
+        persist()
+    }
+
+    fun unhideSongs(ids: Set<Long>) {
+        hiddenSongs = hiddenSongs - ids
+        persist()
+        startAnalysis(getApplication<Application>().applicationContext)
     }
 
     fun playCount(id: Long): Int = plays[id] ?: 0
@@ -104,7 +170,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             } catch (e: Exception) {
                 emptyList()
             }
-            songs = list
+            rawSongs = list
             scanned = true
             scanning = false
             refreshing = false
@@ -217,6 +283,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     fun deleteCategories(ids: Set<String>) {
         cats = cats.filter { it.id !in ids || it.isSystem }
+        folderCats = folderCats.mapValues { (_, v) -> v - ids }.filterValues { it.isNotEmpty() }
         added = added.mapValues { (_, v) -> v - ids }.filterValues { it.isNotEmpty() }
         removed = removed.mapValues { (_, v) -> v - ids }.filterValues { it.isNotEmpty() }
         persist()
@@ -224,7 +291,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     /** 檔案已經被系統刪掉之後，把它們從清單和記憶裡拿掉 */
     fun removeSongs(ids: Set<Long>) {
-        songs = songs.filter { it.id !in ids }
+        rawSongs = rawSongs.filter { it.id !in ids }
+        hiddenSongs = hiddenSongs - ids
         added = added - ids
         removed = removed - ids
         plays = plays - ids
@@ -234,7 +302,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun persist() {
-        val d = StoreData(cats, added, removed, plays, onboarded, bpm, loud)
+        val d = StoreData(cats, added, removed, plays, onboarded, bpm, loud, folderCats, hiddenFolders, hiddenSongs)
         viewModelScope.launch(Dispatchers.IO) { store.save(d) }
     }
 }

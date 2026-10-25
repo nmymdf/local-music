@@ -51,7 +51,7 @@ private val NameW = 88.dp
 private val CountW = 52.dp
 
 @Composable
-fun ManageScreen(vm: LibraryViewModel) {
+fun ManageScreen(vm: LibraryViewModel, onHidden: () -> Unit) {
     val p = LocalPal.current
     var editing by remember { mutableStateOf<Pair<String, Int>?>(null) }
     var checked by remember { mutableStateOf(setOf<String>()) }
@@ -183,6 +183,29 @@ fun ManageScreen(vm: LibraryViewModel) {
                     }
                 }
             }
+        }
+        val hiddenN = vm.allSongs.count { it.id in vm.hiddenSongs || vm.hiddenFolders.any { f -> inFolder(it.folder, f) } }
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .height(48.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(p.surface)
+                .border(1.dp, p.border, RoundedCornerShape(14.dp))
+                .clickable(onClick = onHidden)
+                .padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("已隱藏", color = p.text, fontSize = 14.sp, modifier = Modifier.weight(1f))
+            Text(
+                "${vm.hiddenFolders.size} 個資料夾 · ${fmtCount(hiddenN)} 首",
+                color = p.muted,
+                fontSize = 13.sp,
+                style = NumStyle,
+            )
+            Ico(IcChevRight, p.muted, 18.dp)
         }
     }
 }

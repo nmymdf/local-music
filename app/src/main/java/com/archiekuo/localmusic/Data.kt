@@ -85,7 +85,14 @@ data class StoreData(
     val onboarded: Boolean,
     val bpm: Map<Long, Int> = emptyMap(),
     val loud: Map<Long, Int> = emptyMap(),
+    val folderCats: Map<String, Set<String>> = emptyMap(),
+    val hiddenFolders: Set<String> = emptySet(),
+    val hiddenSongs: Set<Long> = emptySet(),
 )
+
+/** 資料夾規則：歌在這個資料夾，或它的子資料夾 */
+fun inFolder(songFolder: String, rule: String): Boolean =
+    if (rule.isEmpty()) songFolder.isEmpty() else songFolder.startsWith(rule)
 
 class Store(private val file: File) {
 
@@ -151,6 +158,9 @@ class Store(private val file: File) {
                 onboarded = o.optBoolean("onboarded", false),
                 bpm = readPlays(o.optJSONObject("bpm")),
                 loud = readPlays(o.optJSONObject("loud")),
+                folderCats = readFolderCats(o.optJSONObject("folderCats")),
+                hiddenFolders = readStrSet(o.optJSONArray("hiddenFolders")),
+                hiddenSongs = readStrSet(o.optJSONArray("hiddenSongs")).mapNotNull { it.toLongOrNull() }.toSet(),
             )
         } catch (e: Exception) {
             fallback
@@ -160,7 +170,7 @@ class Store(private val file: File) {
     fun save(d: StoreData) {
         try {
             val o = JSONObject()
-            o.put("v", 3)
+            o.put("v", 4)
             o.put("onboarded", d.onboarded)
             val ca = JSONArray()
             for (c in d.cats) {
@@ -184,6 +194,19 @@ class Store(private val file: File) {
             val lo = JSONObject()
             for ((k, v) in d.loud) lo.put(k.toString(), v)
             o.put("loud", lo)
+            val fc = JSONObject()
+            for ((k, v) in d.folderCats) {
+                val arr = JSONArray()
+                for (x in v) arr.put(x)
+                fc.put(k, arr)
+            }
+            o.put("folderCats", fc)
+            val hf = JSONArray()
+            for (x in d.hiddenFolders) hf.put(x)
+            o.put("hiddenFolders", hf)
+            val hs = JSONArray()
+            for (x in d.hiddenSongs) hs.put(x.toString())
+            o.put("hiddenSongs", hs)
             val tmp = File(file.parentFile, file.name + ".tmp")
             tmp.writeText(o.toString())
             if (!tmp.renameTo(file)) {
@@ -193,6 +216,25 @@ class Store(private val file: File) {
         } catch (e: Exception) {
             // 存檔失敗就算了，下次再存
         }
+    }
+
+    private fun readStrSet(a: JSONArray?): Set<String> {
+        val out = HashSet<String>()
+        if (a == null) return out
+        for (i in 0 until a.length()) out.add(a.getString(i))
+        return out
+    }
+
+    private fun readFolderCats(o: JSONObject?): Map<String, Set<String>> {
+        val out = HashMap<String, Set<String>>()
+        if (o == null) return out
+        val keys = o.keys()
+        while (keys.hasNext()) {
+            val k = keys.next()
+            val set = readStrSet(o.optJSONArray(k))
+            if (set.isNotEmpty()) out[k] = set
+        }
+        return out
     }
 
     private fun readSetMap(o: JSONObject?): Map<Long, Set<String>> {
